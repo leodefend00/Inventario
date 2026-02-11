@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Inventario Tech - Purple</title>
+    
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: { 900: '#050505', 800: '#0a0a0a', 700: '#121212' },
+                        purple: { 400: '#c084fc', 500: '#a855f7', 600: '#9333ea', 900: '#581c87' }
+                    },
+                    spacing: {
+                        'safe-top': 'env(safe-area-inset-top)',
+                        'safe-bottom': 'env(safe-area-inset-bottom)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        input, select { font-size: 16px !important; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #581c87; border-radius: 4px; }
+
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .card-anim { animation: slideIn 0.3s ease-out forwards; }
+        
+        .glass { background: rgba(10, 10, 10, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        .light .glass { background: rgba(255, 255, 255, 0.8); }
+
+        .nav-active { color: #a855f7; border-bottom: 2px solid #a855f7; }
+        .nav-inactive { color: #6b7280; border-bottom: 2px solid transparent; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden bg-white text-gray-900 dark:bg-dark-900 dark:text-white selection:bg-purple-500 selection:text-white">
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        const INVENTORY_ID = "inventory-system-v4-details"; 
+
+        const FIREBASE_CONFIG = {
+            apiKey: "AIzaSyAUiRqoUjkVQdfpN2IVGUAHjd8SIWi8J6Q",
+            authDomain: "cronogramastack.firebaseapp.com",
+            projectId: "cronogramastack",
+            storageBucket: "cronogramastack.firebasestorage.app",
+            messagingSenderId: "1077254109806",
+            appId: "1:1077254109806:web:ca59b3a41aa22aacb2447f"
+        };
+
+        // Iconos SVG Integrados
+        const Icons = {
+            Monitor: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>,
+            Printer: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><path d="M6 14h12v8H6z"></path></svg>,
+            Scanner: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="8" rx="2" ry="2"></rect><path d="M5 13v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path><line x1="12" y1="9" x2="12" y2="9.01"></line></svg>,
+            Keyboard: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><line x1="6" y1="8" x2="6" y2="8"></line><line x1="10" y1="8" x2="10" y2="8"></line><line x1="14" y1="8" x2="14" y2="8"></line><line x1="18" y1="8" x2="18" y2="8"></line><line x1="6" y1="12" x2="6" y2="12"></line><line x1="10" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="14" y2="12"></line><line x1="18" y1="12" x2="18" y2="12"></line><line x1="7" y1="16" x2="17" y2="16"></line></svg>,
+            Archive: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"></polyline><rect x="1" y="3" width="22" height="5"></rect><line x1="10" y1="12" x2="14" y2="12"></line></svg>,
+            User: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>,
+            Network: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>,
+            Shield: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>,
+            ShieldAlert: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>,
+            ChevronDown: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>,
+            Plus: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+            Moon: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>,
+            Sun: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>,
+            Search: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>,
+            Trash: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+            Edit2: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>,
+            Server: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>,
+            Power: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>,
+            Save: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>,
+            X: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>,
+            Box: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>,
+            BarChart: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="16"></line></svg>,
+            Menu: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>,
+            Building: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><line x1="9" y1="22" x2="9" y2="22.01"></line><line x1="15" y1="22" x2="15" y2="22.01"></line><line x1="12" y1="22" x2="12" y2="22.01"></line><line x1="12" y1="2" x2="12" y2="22"></line></svg>,
+            Briefcase: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+        };
+
+        const Icon = ({ name, size = 20, className }) => {
+            const IconComponent = Icons[name];
+            return IconComponent ? <IconComponent width={size} height={size} className={className} /> : null;
+        };
+
+        // --- APP PRINCIPAL ---
+        function App() {
+            const [items, setItems] = useState([]);
+            const [theme, setTheme] = useState(() => localStorage.getItem('inv_theme') || 'dark');
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+            const [searchTerm, setSearchTerm] = useState("");
+            const [expandedId, setExpandedId] = useState(null);
+            
+            // Estado de Pestañas: 'main', 'peripherals', 'decommissioned', 'stats'
+            const [currentTab, setCurrentTab] = useState('main');
+
+            const [currentItem, setCurrentItem] = useState(null); 
+            const [formData, setFormData] = useState({
+                id: '', name: '', model: '', user: '', area: '', ports: '', os: 'Windows 10', antivirus: 'no', type: 'computer', status: 'active'
+            });
+
+            // Inicializar Firebase y Tema
+            useEffect(() => {
+                const root = window.document.documentElement;
+                if (theme === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
+                localStorage.setItem('inv_theme', theme);
+
+                const saved = localStorage.getItem('inv_data_v3');
+                if (saved) setItems(JSON.parse(saved));
+
+                if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+                    try {
+                        firebase.initializeApp(FIREBASE_CONFIG);
+                        firebase.auth().signInAnonymously().catch(console.error);
+                        const db = firebase.firestore();
+                        db.collection('inventory_lists').doc(INVENTORY_ID).onSnapshot(doc => {
+                            if (doc.exists && doc.data().items) {
+                                setItems(doc.data().items);
+                            }
+                        });
+                    } catch (e) { console.log("Firebase no disponible"); }
+                }
+            }, [theme]);
+
+            const saveData = (newItems) => {
+                setItems(newItems);
+                localStorage.setItem('inv_data_v3', JSON.stringify(newItems));
+                if (typeof firebase !== 'undefined' && firebase.apps.length) {
+                    clearTimeout(window.saveTimeout);
+                    window.saveTimeout = setTimeout(() => {
+                        firebase.firestore().collection('inventory_lists').doc(INVENTORY_ID).set({ items: newItems });
+                    }, 1000);
+                }
+            };
+
+            const toggleExpand = (id) => setExpandedId(expandedId === id ? null : id);
+
+            const handleEdit = (item) => {
+                setCurrentItem(item);
+                setFormData(item);
+                setIsModalOpen(true);
+            };
+
+            const handleDecommission = (id) => {
+                if(confirm("¿Mover a Desincorporados?")) {
+                    const newItems = items.map(i => i.id === id ? { ...i, status: 'decommissioned' } : i);
+                    saveData(newItems);
+                }
+            };
+            
+            const handleRestore = (id) => {
+                if(confirm("¿Restaurar a activo?")) {
+                    const newItems = items.map(i => i.id === id ? { ...i, status: 'active' } : i);
+                    saveData(newItems);
+                }
+            }
+
+            const handleDelete = (id) => {
+                if(confirm("¿Eliminar PERMANENTEMENTE?")) {
+                    saveData(items.filter(i => i.id !== id));
+                }
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const newItem = { 
+                    ...formData, 
+                    id: currentItem ? currentItem.id : Date.now().toString(),
+                    status: currentItem ? currentItem.status : 'active'
+                };
+
+                let newItems;
+                if (currentItem) newItems = items.map(i => i.id === currentItem.id ? newItem : i);
+                else newItems = [newItem, ...items];
+                
+                saveData(newItems);
+                setIsModalOpen(false);
+                setFormData({ id: '', name: '', model: '', user: '', area: '', ports: '', os: 'Windows 10', antivirus: 'no', type: 'computer', status: 'active' });
+                setCurrentItem(null);
+            };
+
+            // Filtrado Lógico
+            const getFilteredItems = () => {
+                let filtered = items.filter(i => 
+                    (i.name || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+                    (i.user || "").toLowerCase().includes(searchTerm.toLowerCase())
+                );
+
+                if (currentTab === 'main') {
+                    return filtered.filter(i => i.status !== 'decommissioned' && ['computer', 'printer', 'scanner'].includes(i.type));
+                } else if (currentTab === 'peripherals') {
+                    return filtered.filter(i => i.status !== 'decommissioned' && ['monitor', 'keyboard'].includes(i.type));
+                } else if (currentTab === 'decommissioned') {
+                    return filtered.filter(i => i.status === 'decommissioned' || i.status === 'pending_decommission');
+                }
+                return [];
+            };
+
+            const displayedItems = getFilteredItems();
+
+            // Estadísticas
+            const stats = useMemo(() => {
+                const counts = { computer: 0, printer: 0, scanner: 0, monitor: 0, keyboard: 0, decommissioned: 0 };
+                items.forEach(i => {
+                    if (i.status === 'decommissioned') {
+                        counts.decommissioned++;
+                    } else {
+                        if (counts[i.type] !== undefined) counts[i.type]++;
+                    }
+                });
+                return counts;
+            }, [items]);
+
+            // --- RENDER ---
+            return (
+                <div className="flex flex-col h-full bg-gray-50 dark:bg-dark-900 transition-colors duration-300">
+                    
+                    {/* Header */}
+                    <header className="glass fixed top-0 w-full z-20 border-b border-gray-200 dark:border-purple-900/30 pt-safe px-4 pb-2">
+                        <div className="flex justify-between items-center mb-3 mt-2">
+                            <div>
+                                <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 dark:from-purple-400 dark:to-pink-400">
+                                    INVENTARIO
+                                </h1>
+                                <p className="text-[10px] text-gray-500 dark:text-purple-300/50 uppercase tracking-widest font-bold">Control de Activos</p>
+                            </div>
+                            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 rounded-full bg-gray-200 dark:bg-purple-900/20 text-gray-600 dark:text-purple-300 transition-all active:scale-95"><Icon name={theme === 'dark' ? 'Sun' : 'Moon'} size={18} /></button>
+                        </div>
+                        
+                        {/* Tabs Navigation (Menu Desplegable) */}
+                        <div className="md:hidden mb-2">
+                            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="flex items-center gap-2 text-sm font-bold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-dark-800 px-3 py-2 rounded-lg w-full">
+                                <Icon name="Menu" size={16} /> 
+                                {currentTab === 'main' ? 'Equipos' : currentTab === 'peripherals' ? 'Periféricos' : currentTab === 'decommissioned' ? 'Desincorporados' : 'Estadísticas'}
+                                <Icon name="ChevronDown" size={14} className="ml-auto" />
+                            </button>
+                            {isSidebarOpen && (
+                                <div className="absolute top-full left-0 w-full bg-white dark:bg-dark-800 border-b border-gray-200 dark:border-purple-900/30 shadow-xl z-30 animate-slide-up">
+                                    {[
+                                        { id: 'main', label: 'Equipos', icon: 'Server' },
+                                        { id: 'peripherals', label: 'Periféricos', icon: 'Box' },
+                                        { id: 'decommissioned', label: 'Desincorporados', icon: 'Archive' },
+                                        { id: 'stats', label: 'Estadísticas', icon: 'Chart' }
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => { setCurrentTab(tab.id); setIsSidebarOpen(false); }}
+                                            className={`w-full text-left px-4 py-3 flex items-center gap-3 text-sm font-medium border-l-4 transition-colors ${currentTab === tab.id ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/10 text-purple-600 dark:text-purple-300' : 'border-transparent text-gray-500 dark:text-gray-400'}`}
+                                        >
+                                            <Icon name={tab.icon} size={16} /> {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                         {/* Desktop Tabs */}
+                         <div className="hidden md:flex space-x-4 overflow-x-auto pb-2 mb-1 no-scrollbar">
+                            {[
+                                { id: 'main', label: 'Equipos' },
+                                { id: 'peripherals', label: 'Periféricos' },
+                                { id: 'decommissioned', label: 'Desincorporados' },
+                                { id: 'stats', label: 'Estadísticas' }
+                            ].map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setCurrentTab(tab.id)}
+                                    className={`text-sm font-bold whitespace-nowrap px-1 pb-1 transition-colors ${currentTab === tab.id ? 'nav-active' : 'nav-inactive'}`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {currentTab !== 'stats' && (
+                            <div className="relative">
+                                <Icon name="Search" className="absolute left-3 top-2.5 text-gray-400 dark:text-purple-400/50" size={16} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Buscar..." 
+                                    className="w-full bg-gray-100 dark:bg-dark-800 border border-transparent dark:border-purple-900/30 rounded-lg py-2 pl-9 pr-4 text-sm focus:outline-none focus:border-purple-500 transition-all shadow-inner"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                        )}
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="flex-1 overflow-y-auto pt-[180px] md:pt-[140px] pb-24 px-4 safe-pb space-y-3">
+                        
+                        {currentTab === 'stats' ? (
+                            <div className="space-y-6 pt-4 card-anim">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
+                                        <Icon name="Monitor" className="mx-auto mb-2 text-blue-500" />
+                                        <h3 className="text-2xl font-bold dark:text-white">{stats.computer}</h3>
+                                        <p className="text-xs text-gray-500 uppercase">Computadoras</p>
+                                    </div>
+                                    <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
+                                        <Icon name="Printer" className="mx-auto mb-2 text-purple-500" />
+                                        <h3 className="text-2xl font-bold dark:text-white">{stats.printer}</h3>
+                                        <p className="text-xs text-gray-500 uppercase">Impresoras</p>
+                                    </div>
+                                    <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
+                                        <Icon name="Scanner" className="mx-auto mb-2 text-green-500" />
+                                        <h3 className="text-2xl font-bold dark:text-white">{stats.scanner}</h3>
+                                        <p className="text-xs text-gray-500 uppercase">Escáneres</p>
+                                    </div>
+                                    <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
+                                        <Icon name="Box" className="mx-auto mb-2 text-orange-500" />
+                                        <h3 className="text-2xl font-bold dark:text-white">{stats.monitor + stats.keyboard}</h3>
+                                        <p className="text-xs text-gray-500 uppercase">Periféricos</p>
+                                    </div>
+                                </div>
+                                <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
+                                    <Icon name="Archive" className="mx-auto mb-2 text-red-500" />
+                                    <h3 className="text-3xl font-bold text-red-500">{stats.decommissioned}</h3>
+                                    <p className="text-xs text-gray-500 uppercase">Total Desincorporados</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                {displayedItems.length === 0 && (
+                                    <div className="text-center py-20 opacity-50 flex flex-col items-center">
+                                        <Icon name="Server" size={48} className="mb-2 text-purple-500" />
+                                        <p>No hay ítems aquí</p>
+                                    </div>
+                                )}
+
+                                {displayedItems.map(item => (
+                                    <div key={item.id} className="card-anim bg-white dark:bg-gradient-to-br dark:from-dark-800 dark:to-dark-900 border border-gray-100 dark:border-purple-900/30 rounded-2xl shadow-lg dark:shadow-purple-900/10 overflow-hidden">
+                                        <div 
+                                            className="p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 dark:active:bg-purple-900/10 transition-colors"
+                                            onClick={() => toggleExpand(item.id)}
+                                        >
+                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 
+                                                    ${item.type === 'computer' ? 'bg-blue-500/10 text-blue-500' : 
+                                                      item.type === 'printer' ? 'bg-purple-500/10 text-purple-500' :
+                                                      item.type === 'scanner' ? 'bg-green-500/10 text-green-500' :
+                                                      'bg-orange-500/10 text-orange-500'}`}>
+                                                    <Icon name={item.type === 'computer' ? 'Monitor' : item.type === 'printer' ? 'Printer' : item.type === 'scanner' ? 'Scanner' : item.type === 'monitor' ? 'Monitor' : 'Keyboard'} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h3 className="font-bold text-gray-800 dark:text-gray-100 truncate text-sm">{item.name}</h3>
+                                                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{item.model}</p>
+                                                </div>
+                                            </div>
+                                            {item.status === 'pending_decommission' && <span className="text-[10px] bg-orange-500/20 text-orange-500 px-2 py-0.5 rounded-full font-bold">Por Desinc.</span>}
+                                            {item.status === 'decommissioned' && <span className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full font-bold">Desinc.</span>}
+                                            <Icon name="ChevronDown" size={16} className={`transition-transform duration-300 text-gray-400 ${expandedId === item.id ? 'rotate-180' : ''}`} />
+                                        </div>
+
+                                        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${expandedId === item.id ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
+                                            <div className="px-4 pb-4 pt-0 text-sm space-y-2 border-t border-gray-100 dark:border-purple-900/20 mt-1">
+                                                
+                                                {/* Info Usuario / Area */}
+                                                <div className="grid grid-cols-2 gap-2 mt-2">
+                                                    <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs">
+                                                        <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="User" size={10}/> Usuario</p>
+                                                        <p className="font-medium truncate">{item.user}</p>
+                                                    </div>
+                                                    <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs">
+                                                        <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Building" size={10}/> Área</p>
+                                                        <p className="font-medium truncate">{item.area}</p>
+                                                    </div>
+                                                </div>
+
+                                                {item.type === 'computer' && (
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs">
+                                                            <p className="text-[10px] uppercase text-gray-400 font-bold">OS</p>
+                                                            <p>{item.os}</p>
+                                                        </div>
+                                                        <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs">
+                                                            <p className="text-[10px] uppercase text-gray-400 font-bold">Antivirus</p>
+                                                            <p className={`font-medium text-xs flex items-center gap-1 ${item.antivirus === 'si' ? 'text-emerald-500' : 'text-red-500'}`}>
+                                                                <Icon name={item.antivirus === 'si' ? 'Shield' : 'ShieldAlert'} size={12} />
+                                                                {item.antivirus === 'si' ? 'OK' : 'No'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {item.ports && (
+                                                    <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs">
+                                                        <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Network" size={10}/> Puertos / Notas</p>
+                                                        <p className="font-mono text-xs break-all text-gray-600 dark:text-gray-300">{item.ports}</p>
+                                                    </div>
+                                                )}
+
+                                                <div className="flex gap-2 pt-1">
+                                                    <button onClick={() => handleEdit(item)} className="flex-1 bg-purple-600/10 text-purple-600 dark:text-purple-400 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-600/20 transition-colors">Editar</button>
+                                                    
+                                                    {item.status === 'active' ? (
+                                                        <button onClick={() => { e.stopPropagation(); handleDecommission(item.id); }} className="flex-1 bg-orange-500/10 text-orange-500 py-2 rounded-lg text-xs font-bold hover:bg-orange-500/20 transition-colors flex items-center justify-center gap-1"><Icon name="Archive" size={12}/> Caja</button>
+                                                    ) : (
+                                                        <button onClick={() => { e.stopPropagation(); handleDelete(item.id); }} className="flex-1 bg-red-500/10 text-red-500 py-2 rounded-lg text-xs font-bold hover:bg-red-500/20 transition-colors">Eliminar</button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </>
+                        )}
+                    </main>
+
+                    {/* FAB (Solo en vistas de lista) */}
+                    {currentTab !== 'stats' && currentTab !== 'decommissioned' && (
+                        <button 
+                            onClick={() => {
+                                setCurrentItem(null);
+                                // Pre-seleccionar el tipo según la pestaña activa
+                                const defaultType = currentTab === 'peripherals' ? 'monitor' : 'computer';
+                                setFormData({ id: '', name: '', model: '', user: '', area: '', ports: '', os: 'Windows 10', antivirus: 'no', type: defaultType, status: 'active' });
+                                setIsModalOpen(true);
+                            }}
+                            className="fixed bottom-6 right-6 w-12 h-12 bg-gradient-to-r from-purple-600 to-pink-600 rounded-full shadow-lg shadow-purple-500/30 flex items-center justify-center text-white z-40 active:scale-90 transition-transform mb-safe mr-safe"
+                        >
+                            <Icon name="Plus" size={28} />
+                        </button>
+                    )}
+
+                    {/* Modal Formulario */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                            <div className="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-purple-900/30 animate-slide-up flex flex-col max-h-[90vh]">
+                                <div className="p-4 border-b border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5 flex justify-between items-center shrink-0">
+                                    <h2 className="text-lg font-bold dark:text-white">{currentItem ? 'Editar Item' : 'Nuevo Item'}</h2>
+                                    <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><Icon name="X" /></button>
+                                </div>
+                                <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto">
+                                    
+                                    {/* Selector de Tipo */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Tipo</label>
+                                        <select className="w-full bg-gray-100 dark:bg-black/50 border border-transparent focus:border-purple-500 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                                            <option value="computer">Computadora</option>
+                                            <option value="printer">Impresora</option>
+                                            <option value="scanner">Escáner</option>
+                                            <option value="monitor">Monitor</option>
+                                            <option value="keyboard">Teclado</option>
+                                        </select>
+                                    </div>
+
+                                    {/* Estado (Solo en Edición o Desincorporados) */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Estado</label>
+                                        <select className="w-full bg-gray-100 dark:bg-black/50 border border-transparent focus:border-purple-500 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+                                            <option value="active">Activo</option>
+                                            <option value="pending_decommission">Para Desincorporar</option>
+                                            <option value="decommissioned">Desincorporado (Ya salió)</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Nombre</label>
+                                            <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: PC-01" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Modelo</label>
+                                            <input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: HP Pro" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Usuario</label>
+                                            <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Nombre" value={formData.user} onChange={e => setFormData({...formData, user: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Área</label>
+                                            <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Dpto" value={formData.area} onChange={e => setFormData({...formData, area: e.target.value})} />
+                                        </div>
+                                    </div>
+
+                                    {/* Campos Exclusivos de Computadora */}
+                                    {formData.type === 'computer' && (
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">SO</label>
+                                                <select className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.os} onChange={e => setFormData({...formData, os: e.target.value})}>
+                                                    <option>Windows 11</option><option>Windows 10</option><option>Windows 7</option><option>Linux</option><option>Debian</option><option>Canaima 8.3</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Antivirus</label>
+                                                <select className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.antivirus} onChange={e => setFormData({...formData, antivirus: e.target.value})}>
+                                                    <option value="si">Instalado</option><option value="no">No tiene</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">
+                                            {formData.type === 'computer' ? 'Puertos de Red' : 'Detalles / Serial'}
+                                        </label>
+                                        <input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1 font-mono" placeholder="Info..." value={formData.ports} onChange={e => setFormData({...formData, ports: e.target.value})} />
+                                    </div>
+                                    
+                                    <button type="submit" className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 mt-2">
+                                        <Icon name="Save" size={18} /> Guardar
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
