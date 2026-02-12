@@ -72,6 +72,33 @@
         
         /* Estilos del Árbol */
         .tree-line { border-left: 1px dashed #4b5563; margin-left: 0.8rem; padding-left: 0.5rem; }
+
+        /* Chips de Filtro */
+        .filter-chip {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .filter-chip-active {
+            background-color: #a855f7;
+            color: white;
+            border-color: #a855f7;
+        }
+        .filter-chip-inactive {
+            background-color: rgba(255,255,255,0.05);
+            color: #9ca3af;
+            border-color: rgba(255,255,255,0.1);
+        }
+        .light .filter-chip-inactive {
+            background-color: #f3f4f6;
+            color: #4b5563;
+            border-color: #e5e7eb;
+        }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden bg-white text-gray-900 dark:bg-dark-900 dark:text-white selection:bg-purple-500 selection:text-white">
@@ -80,7 +107,6 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        // Mantenemos el mismo ID para no perder datos
         const INVENTORY_ID = "inventory-system-v5-groups"; 
 
         const FIREBASE_CONFIG = {
@@ -136,15 +162,18 @@
 
         // --- COMPONENTE DE ÁRBOL ---
         const TreeView = ({ items, onSelectFilter, selectedFilter, onCloseMenu }) => {
-            // Estructurar datos: Piso -> Área (antes Grupo) -> Items
             const treeData = useMemo(() => {
                 const structure = {};
                 items.forEach(item => {
-                    // Solo incluir items activos (o para desincorporar pero aún en sitio) en el árbol
-                    if (item.status === 'decommissioned' || item.status === 'in_stock') return;
+                    // Items in 'all' view or normal view are candidates, but decommissioned and stock are special cases. 
+                    // However, user requested filters everywhere.
+                    // Let's include everything in the tree structure logic except maybe decommissioned if we want to keep that separate.
+                    // But "Ver Todo" implies everything.
+                    // Let's allow tree navigation for everything that has a floor/area.
+                    if (!item.floor) return;
 
-                    const floor = item.floor || "Sin Ubicación";
-                    const area = item.area || "General"; // Usamos 'area' en lugar de 'group'
+                    const floor = item.floor;
+                    const area = item.area || "General";
                     
                     if (!structure[floor]) structure[floor] = {};
                     if (!structure[floor][area]) structure[floor][area] = [];
@@ -165,7 +194,7 @@
                         onClick={() => { onSelectFilter(null); if(onCloseMenu) onCloseMenu(); }}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 ${!selectedFilter ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                     >
-                        <Icon name="Grid" size={16} /> Ver Todo
+                        <Icon name="Grid" size={16} /> Ver Todo (Global)
                     </button>
 
                     {Object.keys(treeData).sort().map(floor => (
@@ -186,7 +215,6 @@
                             
                             {expandedFloors[floor] && (
                                 <div className="tree-line ml-4 space-y-1 mt-1">
-                                    {/* Botón para ver todo el piso */}
                                     <button 
                                         onClick={() => { onSelectFilter({ type: 'floor', value: floor }); if(onCloseMenu) onCloseMenu(); }}
                                         className="w-full text-left px-2 py-1.5 text-xs text-gray-500 hover:text-white hover:bg-white/5 rounded flex items-center gap-2"
@@ -218,15 +246,11 @@
             const [items, setItems] = useState([]);
             const [theme, setTheme] = useState(() => localStorage.getItem('inv_theme') || 'dark');
             const [isModalOpen, setIsModalOpen] = useState(false);
-            const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Para móvil
+            const [isSidebarOpen, setIsSidebarOpen] = useState(false);
             const [searchTerm, setSearchTerm] = useState("");
             const [expandedId, setExpandedId] = useState(null);
             
-            // Estado de Pestañas: 'main', 'peripherals', 'decommissioned', 'stats'
-            const [currentTab, setCurrentTab] = useState('main');
-            
-            // Estado de filtro del Árbol (null = ver todo)
-            // { type: 'floor' | 'area', value: 'Nombre', floor: 'NombrePiso' }
+            const [currentTab, setCurrentTab] = useState('all'); // Default to 'all' or 'main'
             const [treeFilter, setTreeFilter] = useState(null); 
             
             const [currentItem, setCurrentItem] = useState(null); 
@@ -235,7 +259,7 @@
                 floor: '', type: 'computer', status: 'active', assetId: '' 
             });
 
-            // Inicializar Firebase y Tema
+            // Inicializar
             useEffect(() => {
                 const root = window.document.documentElement;
                 if (theme === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
@@ -248,12 +272,9 @@
                     try {
                         firebase.initializeApp(FIREBASE_CONFIG);
                         firebase.auth().signInAnonymously().catch(console.error);
-                        
                         const db = firebase.firestore();
                         db.collection('inventory_lists').doc(INVENTORY_ID).onSnapshot(doc => {
-                            if (doc.exists && doc.data().items) {
-                                setItems(doc.data().items);
-                            }
+                            if (doc.exists && doc.data().items) setItems(doc.data().items);
                         });
                     } catch (e) { console.log("Firebase no disponible"); }
                 }
@@ -262,7 +283,6 @@
             const saveData = (newItems) => {
                 setItems(newItems);
                 localStorage.setItem('inv_data_v3', JSON.stringify(newItems));
-                
                 if (typeof firebase !== 'undefined' && firebase.apps.length) {
                     clearTimeout(window.saveTimeout);
                     window.saveTimeout = setTimeout(() => {
@@ -272,130 +292,86 @@
             };
 
             const toggleExpand = (id) => setExpandedId(expandedId === id ? null : id);
-
-            const handleEdit = (item) => {
-                setCurrentItem(item);
-                setFormData(item);
-                setIsModalOpen(true);
-            };
-
-            const handleDecommission = (id) => {
-                if(confirm("¿Mover a Desincorporados?")) {
-                    const newItems = items.map(i => i.id === id ? { ...i, status: 'decommissioned' } : i);
-                    saveData(newItems);
-                    // Cambiar a la pestaña de desincorporados para feedback visual
-                    setCurrentTab('decommissioned');
-                }
-            };
-            
-            const handleRestore = (id) => {
-                if(confirm("¿Restaurar equipo a activo?")) {
-                    const newItems = items.map(i => i.id === id ? { ...i, status: 'active' } : i);
-                    saveData(newItems);
-                    setCurrentTab('main');
-                }
-            }
-
-            const handleDelete = (id) => {
-                if(confirm("¿Eliminar este equipo del inventario PERMANENTEMENTE?")) {
-                    saveData(items.filter(i => i.id !== id));
-                }
-            };
+            const handleEdit = (item) => { setCurrentItem(item); setFormData(item); setIsModalOpen(true); };
+            const handleDecommission = (id) => { if(confirm("¿Mover a Desincorporados?")) { saveData(items.map(i => i.id === id ? { ...i, status: 'decommissioned' } : i)); } };
+            const handleRestore = (id) => { if(confirm("¿Restaurar a activo?")) { saveData(items.map(i => i.id === id ? { ...i, status: 'active' } : i)); } };
+            const handleDelete = (id) => { if(confirm("¿Eliminar PERMANENTEMENTE?")) { saveData(items.filter(i => i.id !== id)); } };
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                // Si el status no es desincorporado o stock, validar campos obligatorios
-                if(formData.status !== 'decommissioned' && formData.status !== 'in_stock') {
-                     if (!formData.floor || !formData.area) return alert("Piso y Área son requeridos para equipos activos");
-                }
-
-                // Ajustar datos para stock
-                const isStock = formData.status === 'in_stock';
-                const finalName = isStock && !formData.name ? "SIN ASIGNAR" : formData.name;
-                const finalUser = isStock ? "ALMACÉN" : formData.user;
-
                 const newItem = { 
                     ...formData, 
-                    name: finalName,
-                    user: finalUser,
                     id: currentItem ? currentItem.id : Date.now().toString(),
                     floor: formData.floor ? formData.floor.trim() : '',
-                    area: formData.area ? formData.area.trim() : '', // Usamos 'area' como grupo
+                    area: formData.area ? formData.area.trim() : '', // Use area for grouping
                     model: formData.model ? formData.model.trim() : "Hp compaq Pro 6300"
                 };
-
-                // Limpiar propiedad 'group' antigua si existe en el objeto
-                delete newItem.group;
+                delete newItem.group; // Cleanup old field
 
                 let newItems;
-                if (currentItem) {
-                    newItems = items.map(i => i.id === currentItem.id ? newItem : i);
-                } else {
-                    newItems = [newItem, ...items];
-                }
+                if (currentItem) newItems = items.map(i => i.id === currentItem.id ? newItem : i);
+                else newItems = [newItem, ...items];
                 
                 saveData(newItems);
                 setIsModalOpen(false);
-                // Reset form
                 setFormData({ id: '', name: '', model: 'Hp compaq Pro 6300', user: '', area: '', ports: '', os: 'Windows 10', antivirus: 'no', floor: '', type: 'computer', status: 'active', assetId: '' });
                 setCurrentItem(null);
             };
 
-            // Filtrado Lógico (Buscador + Árbol + Pestañas)
             const getFilteredItems = () => {
-                let filtered = items.filter(i => {
+                // 1. Base Filter (Search & Tree)
+                let baseFiltered = items.filter(i => {
                     const matchesSearch = (i.name || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
                                           (i.user || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
                                           (i.assetId || "").toLowerCase().includes(searchTerm.toLowerCase());
-                    return matchesSearch;
+                    if (!matchesSearch) return false;
+
+                    if (treeFilter) {
+                        if (treeFilter.type === 'floor') return i.floor === treeFilter.value;
+                        if (treeFilter.type === 'area') return i.area === treeFilter.value && i.floor === treeFilter.floor;
+                    }
+                    return true;
                 });
 
-                if (currentTab === 'main') {
-                    // Equipos principales activos
-                    filtered = filtered.filter(i => i.status !== 'decommissioned' && i.status !== 'in_stock' && ['computer', 'printer', 'scanner'].includes(i.type));
+                // 2. Tab Filter (Acts as a sub-filter when tree is active, or main filter otherwise)
+                if (currentTab === 'all') {
+                    // Show everything (except typically statistics view logic handled separately)
+                    return baseFiltered;
+                } else if (currentTab === 'main') {
+                    return baseFiltered.filter(i => i.status !== 'decommissioned' && i.status !== 'in_stock' && ['computer', 'printer', 'scanner'].includes(i.type));
                 } else if (currentTab === 'peripherals') {
-                    // Periféricos activos
-                    filtered = filtered.filter(i => i.status !== 'decommissioned' && i.status !== 'in_stock' && ['monitor', 'keyboard'].includes(i.type));
+                    return baseFiltered.filter(i => i.status !== 'decommissioned' && i.status !== 'in_stock' && ['monitor', 'keyboard'].includes(i.type));
                 } else if (currentTab === 'stock') {
-                    return filtered.filter(i => i.status === 'in_stock');
+                    return baseFiltered.filter(i => i.status === 'in_stock');
                 } else if (currentTab === 'decommissioned') {
-                    // Todo lo desincorporado
-                    return filtered.filter(i => i.status === 'decommissioned' || i.status === 'pending_decommission');
-                } else if (currentTab === 'stats') {
-                     return [];
+                    return baseFiltered.filter(i => i.status === 'decommissioned' || i.status === 'pending_decommission');
                 }
-
-                // Aplicar Filtro de Árbol (Usando 'area')
-                if (treeFilter) {
-                    if (treeFilter.type === 'floor') filtered = filtered.filter(i => i.floor === treeFilter.value);
-                    if (treeFilter.type === 'area') filtered = filtered.filter(i => i.area === treeFilter.value && i.floor === treeFilter.floor);
-                }
-
-                return filtered;
+                return [];
             };
 
             const displayedItems = getFilteredItems();
 
-            // Estadísticas
             const stats = useMemo(() => {
                 const counts = { computer: 0, printer: 0, scanner: 0, monitor: 0, keyboard: 0, decommissioned: 0, in_stock: 0 };
                 items.forEach(i => {
-                    if (i.status === 'decommissioned') {
-                        counts.decommissioned++;
-                    } else if (i.status === 'in_stock') {
-                        counts.in_stock++;
-                    } else {
-                        if (counts[i.type] !== undefined) counts[i.type]++;
-                    }
+                    if (i.status === 'decommissioned') counts.decommissioned++;
+                    else if (i.status === 'in_stock') counts.in_stock++;
+                    else if (counts[i.type] !== undefined) counts[i.type]++;
                 });
                 return counts;
             }, [items]);
 
-            // --- RENDER ---
+            // --- SELECCIÓN DEL MENU "VER TODO" DEL SIDEBAR ---
+            const handleSidebarViewAll = () => {
+                setTreeFilter(null);
+                setCurrentTab('all');
+                setIsSidebarOpen(false);
+            };
+
             return (
                 <div className="flex h-full bg-gray-50 dark:bg-dark-900 transition-colors duration-300 overflow-hidden font-sans">
                     
-                    {/* SIDEBAR DESKTOP & MOBILE */}
+                    {/* SIDEBAR */}
                     <aside className={`fixed inset-y-0 left-0 w-72 bg-white dark:bg-dark-800 border-r border-gray-200 dark:border-purple-900/20 z-30 transition-transform duration-300 md:relative md:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} pt-safe pb-safe shadow-2xl md:shadow-none flex flex-col`}>
                         <div className="p-4 border-b border-gray-100 dark:border-white/5 flex items-center justify-between mt-8 md:mt-0">
                             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500">INVENTARIO</h1>
@@ -403,31 +379,24 @@
                         </div>
                         
                         <nav className="flex-1 p-4 space-y-2">
-                             <button onClick={() => { setCurrentTab('main'); setIsSidebarOpen(false); }} className={`w-full ${currentTab === 'main' ? 'nav-item-active' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'} nav-item rounded-lg font-bold`}>
-                                <Icon name="Server" /> Equipos
-                             </button>
-                             <button onClick={() => { setCurrentTab('peripherals'); setIsSidebarOpen(false); }} className={`w-full ${currentTab === 'peripherals' ? 'nav-item-active' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'} nav-item rounded-lg font-bold`}>
-                                <Icon name="Box" /> Periféricos
-                             </button>
-                             <button onClick={() => { setCurrentTab('stock'); setIsSidebarOpen(false); }} className={`w-full ${currentTab === 'stock' ? 'nav-item-active' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'} nav-item rounded-lg font-bold`}><Icon name="Package" /> En Stock</button>
-                             <button onClick={() => { setCurrentTab('decommissioned'); setIsSidebarOpen(false); }} className={`w-full ${currentTab === 'decommissioned' ? 'nav-item-active' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'} nav-item rounded-lg font-bold`}>
-                                <Icon name="Archive" /> Desincorporación
+                             <button onClick={handleSidebarViewAll} className={`w-full ${currentTab === 'all' ? 'nav-item-active' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'} nav-item rounded-lg font-bold`}>
+                                <Icon name="Grid" /> Vista Global
                              </button>
                              <button onClick={() => { setCurrentTab('stats'); setIsSidebarOpen(false); }} className={`w-full ${currentTab === 'stats' ? 'nav-item-active' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'} nav-item rounded-lg font-bold`}>
                                 <Icon name="Chart" /> Estadísticas
                              </button>
+                             
+                             <div className="pt-4 border-t border-gray-100 dark:border-white/5">
+                                 <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase mb-3">Navegar por Ubicación</h3>
+                                 <TreeView 
+                                    items={items} 
+                                    onSelectFilter={(f) => { setTreeFilter(f); setCurrentTab('all'); }} // Default to 'all' when picking a floor, user can then filter using top bar
+                                    selectedFilter={treeFilter}
+                                    onCloseMenu={() => setIsSidebarOpen(false)}
+                                />
+                             </div>
                         </nav>
                         
-                        <div className="flex-1 overflow-y-auto p-4 border-t border-gray-100 dark:border-white/5">
-                            <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase mb-3">Árbol de Sistemas</h3>
-                            <TreeView 
-                                items={items} 
-                                onSelectFilter={setTreeFilter} 
-                                selectedFilter={treeFilter}
-                                onCloseMenu={() => setIsSidebarOpen(false)}
-                            />
-                        </div>
-
                         <div className="p-4 border-t border-gray-100 dark:border-white/5 text-xs text-center text-gray-400">
                              <button 
                                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
@@ -443,21 +412,38 @@
                     {/* MAIN CONTENT */}
                     <main className="flex-1 flex flex-col h-full relative w-full">
                         {/* Header Mobile */}
-                        <header className="glass absolute top-0 w-full z-10 border-b border-gray-200 dark:border-purple-900/30 pt-safe px-4 pb-3 flex flex-col gap-3">
+                        <header className="glass absolute top-0 w-full z-10 border-b border-gray-200 dark:border-purple-900/30 pt-safe px-4 pb-2 flex flex-col gap-3">
                             <div className="flex items-center gap-3 mt-2">
                                 <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-gray-500 dark:text-purple-300"><Icon name="Menu" /></button>
-                                <div className="flex flex-col">
-                                    <h2 className="text-lg font-bold dark:text-white uppercase tracking-wide">
-                                        {currentTab === 'main' ? 'Equipos' : currentTab === 'peripherals' ? 'Periféricos' : currentTab === 'decommissioned' ? 'Desincorporados' : currentTab === 'stock' ? 'En Stock' : 'Estadísticas'}
+                                <div className="flex flex-col overflow-hidden">
+                                    <h2 className="text-lg font-bold dark:text-white uppercase tracking-wide truncate">
+                                        {currentTab === 'stats' ? 'Estadísticas' : 
+                                         treeFilter ? (treeFilter.type === 'floor' ? `Piso: ${treeFilter.value}` : `${treeFilter.value}`) : 'Vista Global'}
                                     </h2>
-                                    {treeFilter && currentTab === 'main' && (
-                                        <span className="text-xs text-purple-500 font-medium">
-                                            Filtro: {treeFilter.type === 'floor' ? `Piso: ${treeFilter.value}` : `${treeFilter.value}`}
-                                        </span>
-                                    )}
                                 </div>
                             </div>
                             
+                            {/* BARRA DE FILTROS ENCABEZADO (Tipo Pestañas) */}
+                            {currentTab !== 'stats' && (
+                                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                                    {[
+                                        { id: 'all', label: 'Todo' },
+                                        { id: 'main', label: 'Equipos' },
+                                        { id: 'peripherals', label: 'Periféricos' },
+                                        { id: 'stock', label: 'Stock' },
+                                        { id: 'decommissioned', label: 'Baja' }
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setCurrentTab(tab.id)}
+                                            className={`filter-chip ${currentTab === tab.id ? 'filter-chip-active' : 'filter-chip-inactive'}`}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             {currentTab !== 'stats' && (
                                 <div className="relative">
                                     <Icon name="Search" className="absolute left-3 top-2.5 text-gray-400 dark:text-purple-400/50" size={16} />
@@ -472,53 +458,29 @@
                             )}
                         </header>
 
-                        <div className="flex-1 overflow-y-auto pt-[130px] pb-24 px-4 safe-pb space-y-4">
+                        <div className="flex-1 overflow-y-auto pt-[190px] pb-24 px-4 safe-pb space-y-4">
                             {currentTab === 'stats' ? (
                                 <div className="space-y-6 pt-4 card-anim">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
-                                            <Icon name="Monitor" className="mx-auto mb-2 text-blue-500" />
-                                            <h3 className="text-2xl font-bold dark:text-white">{stats.computer}</h3>
-                                            <p className="text-xs text-gray-500 uppercase">Computadoras</p>
-                                        </div>
-                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
-                                            <Icon name="Printer" className="mx-auto mb-2 text-purple-500" />
-                                            <h3 className="text-2xl font-bold dark:text-white">{stats.printer}</h3>
-                                            <p className="text-xs text-gray-500 uppercase">Impresoras</p>
-                                        </div>
-                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
-                                            <Icon name="Scanner" className="mx-auto mb-2 text-green-500" />
-                                            <h3 className="text-2xl font-bold dark:text-white">{stats.scanner}</h3>
-                                            <p className="text-xs text-gray-500 uppercase">Escáneres</p>
-                                        </div>
-                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
-                                            <Icon name="Box" className="mx-auto mb-2 text-orange-500" />
-                                            <h3 className="text-2xl font-bold dark:text-white">{stats.monitor + stats.keyboard}</h3>
-                                            <p className="text-xs text-gray-500 uppercase">Periféricos</p>
-                                        </div>
-                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center col-span-2 md:col-span-1">
-                                            <Icon name="Package" className="mx-auto mb-2 text-blue-400" />
-                                            <h3 className="text-2xl font-bold dark:text-white">{stats.in_stock}</h3>
-                                            <p className="text-xs text-gray-500 uppercase">En Stock (Almacén)</p>
-                                        </div>
+                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center"><Icon name="Monitor" className="mx-auto mb-2 text-blue-500" /><h3 className="text-2xl font-bold dark:text-white">{stats.computer}</h3><p className="text-xs text-gray-500 uppercase">Computadoras</p></div>
+                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center"><Icon name="Printer" className="mx-auto mb-2 text-purple-500" /><h3 className="text-2xl font-bold dark:text-white">{stats.printer}</h3><p className="text-xs text-gray-500 uppercase">Impresoras</p></div>
+                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center"><Icon name="Scanner" className="mx-auto mb-2 text-green-500" /><h3 className="text-2xl font-bold dark:text-white">{stats.scanner}</h3><p className="text-xs text-gray-500 uppercase">Escáneres</p></div>
+                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center"><Icon name="Box" className="mx-auto mb-2 text-orange-500" /><h3 className="text-2xl font-bold dark:text-white">{stats.monitor + stats.keyboard}</h3><p className="text-xs text-gray-500 uppercase">Periféricos</p></div>
+                                        <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center col-span-2 md:col-span-1"><Icon name="RefreshCw" className="mx-auto mb-2 text-blue-400" /><h3 className="text-2xl font-bold dark:text-white">{stats.in_stock}</h3><p className="text-xs text-gray-500 uppercase">En Stock</p></div>
                                     </div>
-                                    <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center">
-                                        <Icon name="Archive" className="mx-auto mb-2 text-red-500" />
-                                        <h3 className="text-3xl font-bold text-red-500">{stats.decommissioned}</h3>
-                                        <p className="text-xs text-gray-500 uppercase">Total Desincorporados</p>
-                                    </div>
+                                    <div className="bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-purple-900/20 text-center"><Icon name="Archive" className="mx-auto mb-2 text-red-500" /><h3 className="text-3xl font-bold text-red-500">{stats.decommissioned}</h3><p className="text-xs text-gray-500 uppercase">Total Desincorporados</p></div>
                                 </div>
                             ) : (
                                 <>
                                     {displayedItems.length === 0 && (
                                         <div className="text-center py-20 opacity-50 flex flex-col items-center">
                                             <Icon name="Server" size={48} className="mb-2 text-purple-500" />
-                                            <p>No hay ítems aquí</p>
+                                            <p>No se encontraron equipos</p>
                                         </div>
                                     )}
 
                                     {displayedItems.map(item => (
-                                        <div key={item.id} className="card-anim bg-white dark:bg-gradient-to-br dark:from-dark-800 dark:to-dark-900 border border-gray-100 dark:border-purple-900/30 rounded-xl shadow-sm dark:shadow-purple-900/5 overflow-hidden">
+                                        <div key={item.id} className="card-anim bg-white dark:bg-gradient-to-br dark:from-dark-800 dark:to-dark-900 border border-gray-100 dark:border-purple-900/30 rounded-xl shadow-sm dark:shadow-purple-900/10 overflow-hidden">
                                             <div 
                                                 className="p-3 flex items-center justify-between cursor-pointer active:bg-gray-50 dark:active:bg-purple-900/10 transition-colors"
                                                 onClick={() => toggleExpand(item.id)}
@@ -535,9 +497,11 @@
                                                         <h3 className="font-bold text-gray-800 dark:text-gray-100 truncate text-sm">{item.name}</h3>
                                                         <div className="flex flex-col">
                                                             <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{item.model}</p>
-                                                            {item.status === 'pending_decommission' && <span className="text-[10px] bg-orange-500/20 text-orange-500 px-2 py-0.5 rounded-full font-bold">Por Desinc.</span>}
-                                                            {item.status === 'decommissioned' && <span className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded-full font-bold">Desinc.</span>}
-                                                            {item.status === 'in_stock' && <span className="text-[10px] bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded-full font-bold">EN STOCK</span>}
+                                                            <div className="flex gap-1 mt-0.5">
+                                                                <span className={`status-badge ${item.status === 'active' ? 'status-active' : item.status === 'in_stock' ? 'status-stock' : item.status === 'pending_decommission' ? 'status-pending' : 'status-gone'}`}>
+                                                                    {item.status === 'active' ? 'ACTIVO' : item.status === 'in_stock' ? 'STOCK' : item.status === 'pending_decommission' ? 'POR DESINC.' : 'DESINC.'}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -546,8 +510,6 @@
 
                                             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${expandedId === item.id ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
                                                 <div className="px-3 pb-3 pt-0 text-sm space-y-2 border-t border-gray-100 dark:border-purple-900/20 mt-1">
-                                                    
-                                                    {/* NUEVO CAMPO ACTIVO FIJO */}
                                                     {item.assetId && (
                                                         <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs mt-2 border border-gray-200 dark:border-white/5">
                                                             <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Tag" size={10}/> Activo Fijo</p>
@@ -555,42 +517,22 @@
                                                         </div>
                                                     )}
 
-                                                    {/* MOSTRAR SOLO SI NO ESTÁ EN STOCK */}
                                                     {item.status !== 'in_stock' && (
                                                         <>
                                                             <div className="grid grid-cols-2 gap-2 mt-2">
-                                                                <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs">
-                                                                    <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="User" size={10}/> Usuario</p>
-                                                                    <p className="font-medium truncate">{item.user}</p>
-                                                                </div>
-                                                                <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs">
-                                                                    <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Building" size={10}/> Área/Dpto</p>
-                                                                    <p className="font-medium truncate">{item.area}</p>
-                                                                </div>
+                                                                <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs"><p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="User" size={10}/> Usuario</p><p className="font-medium truncate">{item.user}</p></div>
+                                                                <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs"><p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Building" size={10}/> Área</p><p className="font-medium truncate">{item.area}</p></div>
                                                             </div>
-
                                                             <div className="grid grid-cols-2 gap-2">
-                                                                <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs">
-                                                                    <p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Briefcase" size={10}/> Piso</p>
-                                                                    <p className="font-medium truncate">{item.floor}</p>
-                                                                </div>
+                                                                <div className="bg-gray-50 dark:bg-black/30 p-2 rounded-lg text-xs"><p className="text-[10px] uppercase text-gray-400 font-bold mb-1 flex items-center gap-1"><Icon name="Briefcase" size={10}/> Piso</p><p className="font-medium truncate">{item.floor}</p></div>
                                                             </div>
                                                         </>
                                                     )}
 
                                                     {item.type === 'computer' && (
                                                         <div className="grid grid-cols-2 gap-2">
-                                                            <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs">
-                                                                <p className="text-[10px] uppercase text-gray-400 font-bold">OS</p>
-                                                                <p>{item.os}</p>
-                                                            </div>
-                                                            <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs">
-                                                                <p className="text-[10px] uppercase text-gray-400 font-bold">Antivirus</p>
-                                                                <p className={`font-medium text-xs flex items-center gap-1 ${item.antivirus === 'si' ? 'text-emerald-500' : 'text-red-500'}`}>
-                                                                    <Icon name={item.antivirus === 'si' ? 'Shield' : 'ShieldAlert'} size={12} />
-                                                                    {item.antivirus === 'si' ? 'OK' : 'No'}
-                                                                </p>
-                                                            </div>
+                                                            <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs"><p className="text-[10px] uppercase text-gray-400 font-bold">OS</p><p>{item.os}</p></div>
+                                                            <div className="bg-gray-50 dark:bg-black/30 p-2 rounded text-xs"><p className="text-[10px] uppercase text-gray-400 font-bold">Antivirus</p><p className={`font-medium text-xs flex items-center gap-1 ${item.antivirus === 'si' ? 'text-emerald-500' : 'text-red-500'}`}>{item.antivirus === 'si' ? 'OK' : 'No'}</p></div>
                                                         </div>
                                                     )}
 
@@ -603,7 +545,6 @@
 
                                                     <div className="flex gap-2 pt-1">
                                                         <button onClick={() => handleEdit(item)} className="flex-1 bg-purple-600/10 text-purple-600 dark:text-purple-400 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-600/20 transition-colors">Editar</button>
-                                                        
                                                         {item.status === 'decommissioned' ? (
                                                             <>
                                                                 <button onClick={() => { handleRestore(item.id); }} className="flex-1 bg-blue-500/10 text-blue-500 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-500/20 transition-colors">Restaurar</button>
@@ -620,129 +561,90 @@
                                 </>
                             )}
                         </div>
-                    </main>
 
-                    {/* FAB (Solo en vistas de lista) */}
-                    {currentTab !== 'stats' && currentTab !== 'decommissioned' && (
-                        <button 
-                            onClick={() => {
-                                setCurrentItem(null);
-                                // Pre-seleccionar el tipo según la pestaña activa
-                                const defaultType = currentTab === 'peripherals' ? 'monitor' : 'computer';
-                                // Pre-seleccionar estado
-                                const defaultStatus = currentTab === 'stock' ? 'in_stock' : 'active';
-                                setFormData({ id: '', name: '', model: 'Hp compaq Pro 6300', user: '', area: '', ports: '', os: 'Windows 10', antivirus: 'no', floor: '', group: '', type: defaultType, status: defaultStatus, assetId: '' });
-                                setIsModalOpen(true);
-                            }}
-                            className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-purple-600 to-pink-600 rounded-full shadow-lg shadow-purple-500/30 flex items-center justify-center text-white z-40 active:scale-90 transition-transform mb-safe mr-safe"
-                        >
-                            <Icon name="Plus" size={28} />
-                        </button>
-                    )}
-
-                    {/* Modal Formulario */}
-                    {isModalOpen && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
-                            <div className="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-purple-900/30 animate-slide-up flex flex-col max-h-[90vh]">
-                                <div className="p-4 border-b border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5 flex justify-between items-center shrink-0">
-                                    <h2 className="text-lg font-bold dark:text-white">{currentItem ? 'Editar Item' : 'Nuevo Item'}</h2>
-                                    <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><Icon name="X" /></button>
-                                </div>
-                                <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto">
+                        {/* FAB (Solo si no estamos en stats) */}
+                        {currentTab !== 'stats' && (
+                            <button 
+                                onClick={() => {
+                                    setCurrentItem(null);
+                                    // Determinar tipo por defecto
+                                    let defaultType = 'computer';
+                                    let defaultStatus = 'active';
+                                    if(currentTab === 'peripherals') defaultType = 'monitor';
+                                    if(currentTab === 'stock') defaultStatus = 'in_stock';
+                                    if(currentTab === 'decommissioned') defaultStatus = 'decommissioned';
                                     
-                                    {/* Selector de Tipo */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Tipo</label>
-                                        <select className="w-full bg-gray-100 dark:bg-black/50 border border-transparent focus:border-purple-500 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
-                                            <option value="computer">Computadora</option>
-                                            <option value="printer">Impresora</option>
-                                            <option value="scanner">Escáner</option>
-                                            <option value="monitor">Monitor</option>
-                                            <option value="keyboard">Teclado</option>
-                                        </select>
-                                    </div>
+                                    setFormData({ id: '', name: '', model: 'Hp compaq Pro 6300', user: '', area: '', ports: '', os: 'Windows 10', antivirus: 'no', floor: '', type: defaultType, status: defaultStatus, assetId: '' });
+                                    setIsModalOpen(true);
+                                }}
+                                className="fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-purple-600 to-pink-600 rounded-full shadow-lg shadow-purple-500/30 flex items-center justify-center text-white z-40 active:scale-90 transition-transform mb-safe mr-safe"
+                            >
+                                <Icon name="Plus" size={28} />
+                            </button>
+                        )}
 
-                                    {/* Estado */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Estado</label>
-                                        <select className="w-full bg-gray-100 dark:bg-black/50 border border-transparent focus:border-purple-500 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
-                                            <option value="active">Activo</option>
-                                            <option value="in_stock">En Stock (Almacén)</option>
-                                            <option value="pending_decommission">Para Desincorporar</option>
-                                            <option value="decommissioned">Desincorporado (Ya salió)</option>
-                                        </select>
+                        {/* Modal Formulario */}
+                        {isModalOpen && (
+                            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                                <div className="bg-white dark:bg-zinc-900 w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border border-gray-200 dark:border-purple-900/30 animate-slide-up flex flex-col max-h-[90vh]">
+                                    <div className="p-4 border-b border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5 flex justify-between items-center shrink-0">
+                                        <h2 className="text-lg font-bold dark:text-white">{currentItem ? 'Editar Item' : 'Nuevo Item'}</h2>
+                                        <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><Icon name="X" /></button>
                                     </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
+                                    <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto">
+                                        
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Nombre</label>
-                                            <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: PC-01" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Tipo</label>
+                                            <select className="w-full bg-gray-100 dark:bg-black/50 border border-transparent focus:border-purple-500 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                                                <option value="computer">Computadora</option>
+                                                <option value="printer">Impresora</option>
+                                                <option value="scanner">Escáner</option>
+                                                <option value="monitor">Monitor</option>
+                                                <option value="keyboard">Teclado</option>
+                                            </select>
                                         </div>
+
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Modelo</label>
-                                            <input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: HP Pro" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} />
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Estado</label>
+                                            <select className="w-full bg-gray-100 dark:bg-black/50 border border-transparent focus:border-purple-500 dark:border-zinc-700 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
+                                                <option value="active">Activo</option>
+                                                <option value="in_stock">En Stock (Almacén)</option>
+                                                <option value="pending_decommission">Para Desincorporar</option>
+                                                <option value="decommissioned">Desincorporado (Ya salió)</option>
+                                            </select>
                                         </div>
-                                    </div>
 
-                                    {/* Nuevo Campo Activo Fijo */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Activo Fijo (Etiqueta)</label>
-                                        <input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1 font-mono tracking-wider border border-transparent focus:border-purple-500" placeholder="Ej: AF-2024-001" value={formData.assetId || ''} onChange={e => setFormData({...formData, assetId: e.target.value})} />
-                                    </div>
-
-                                    {/* Campos condicionales: Ocultos si está en Stock */}
-                                    {formData.status !== 'in_stock' && (
-                                        <>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Usuario</label>
-                                                    <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Nombre" value={formData.user} onChange={e => setFormData({...formData, user: e.target.value})} />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Área</label>
-                                                    <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Dpto" value={formData.area} onChange={e => setFormData({...formData, area: e.target.value})} />
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div>
-                                                    <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Piso</label>
-                                                    <input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: Piso 1" value={formData.floor} onChange={e => setFormData({...formData, floor: e.target.value})} />
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-
-                                    {formData.type === 'computer' && (
                                         <div className="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">SO</label>
-                                                <select className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.os} onChange={e => setFormData({...formData, os: e.target.value})}>
-                                                    <option>Windows 11</option><option>Windows 10</option><option>Windows 7</option><option>Linux</option><option>Debian</option><option>Canaima 8.3</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Antivirus</label>
-                                                <select className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.antivirus} onChange={e => setFormData({...formData, antivirus: e.target.value})}>
-                                                    <option value="si">Instalado</option><option value="no">No tiene</option>
-                                                </select>
-                                            </div>
+                                            <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Nombre</label><input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: PC-01" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+                                            <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Modelo</label><input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: HP Pro" value={formData.model} onChange={e => setFormData({...formData, model: e.target.value})} /></div>
                                         </div>
-                                    )}
 
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">
-                                            {formData.type === 'computer' ? 'Puertos de Red' : 'Detalles / Serial'}
-                                        </label>
-                                        <input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1 font-mono" placeholder="Info..." value={formData.ports} onChange={e => setFormData({...formData, ports: e.target.value})} />
-                                    </div>
-                                    
-                                    <button type="submit" className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 mt-2">
-                                        <Icon name="Save" size={18} /> Guardar
-                                    </button>
-                                </form>
+                                        <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Activo Fijo (Etiqueta)</label><input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1 font-mono tracking-wider border border-transparent focus:border-purple-500" placeholder="Ej: AF-2024-001" value={formData.assetId || ''} onChange={e => setFormData({...formData, assetId: e.target.value})} /></div>
+
+                                        {formData.status !== 'in_stock' && (
+                                            <>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Usuario</label><input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Nombre" value={formData.user} onChange={e => setFormData({...formData, user: e.target.value})} /></div>
+                                                    <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Área</label><input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Dpto" value={formData.area} onChange={e => setFormData({...formData, area: e.target.value})} /></div>
+                                                </div>
+                                                <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Piso</label><input required className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1" placeholder="Ej: Piso 1" value={formData.floor} onChange={e => setFormData({...formData, floor: e.target.value})} /></div>
+                                            </>
+                                        )}
+
+                                        {formData.type === 'computer' && (
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">SO</label><select className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.os} onChange={e => setFormData({...formData, os: e.target.value})}><option>Windows 11</option><option>Windows 10</option><option>Windows 7</option><option>Linux</option><option>Debian</option><option>Canaima 8.3</option></select></div>
+                                                <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">Antivirus</label><select className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-2 py-2 text-sm dark:text-white outline-none mt-1" value={formData.antivirus} onChange={e => setFormData({...formData, antivirus: e.target.value})}><option value="si">Instalado</option><option value="no">No tiene</option></select></div>
+                                            </div>
+                                        )}
+
+                                        <div><label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">{formData.type === 'computer' ? 'Puertos de Red' : 'Detalles / Serial'}</label><input className="w-full bg-gray-100 dark:bg-black/50 rounded-lg px-3 py-2 text-sm dark:text-white outline-none mt-1 font-mono" placeholder="Info..." value={formData.ports} onChange={e => setFormData({...formData, ports: e.target.value})} /></div>
+                                        <button type="submit" className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 mt-2"><Icon name="Save" size={18} /> Guardar</button>
+                                    </form>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </main>
                 </div>
             );
         }
